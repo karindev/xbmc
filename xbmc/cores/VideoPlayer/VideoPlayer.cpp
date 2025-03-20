@@ -152,7 +152,7 @@ public:
  *        If lh is 'better than' rh the return value is true, false otherwise.
  *        The priority sequence is exactly as shown by the code sequence of the operator() method.
  *
- *        NOTE: Dont exists a "default" setting for subtitles, as there is for audio (media default),
+ *        NOTE: Doesn't exist a "default" setting for subtitles, as there is for audio (media default),
  *              so the default flag will give a priority over another only when two streams
  *              have same properties (e.g. same language with a same flag, but a different codec, author, etc...).
  */
@@ -181,16 +181,21 @@ public:
     m_isPrefHearingImp = settings->GetBool(CSettings::SETTING_ACCESSIBILITY_SUBHEARING);
 
     m_subLang = g_langInfo.GetSubtitleLanguage(false);
-    if (m_subLang.empty()) // No language set (due to none, original, forced_only settings)
+    // No language set (due to none, original, forced_only settings)
+    if (m_subLang.empty())
     {
       m_subLang = g_langInfo.GetAudioLanguage(false);
-      if (m_subLang.empty()) // No language set (due to default, original, mediadefault settings)
+      // No language set (due to default, original, mediadefault settings)
+      if (m_subLang.empty())
         m_subLang = m_playedAudioLang;
     }
 
-    // Dont allow "forced" setting to be combined with "impaired" setting
-    if (m_isPrefHearingImp && m_isPrefForced)
-      m_isPrefForced = false;
+    // Don't allow "forced" setting to be combined with "impaired" setting
+    if (m_isPrefHearingImp)
+    {
+      if (m_isPrefForced)
+        m_isPrefForced = false;
+    }
   };
 
   /*!
@@ -207,17 +212,19 @@ public:
     if (m_isSubNone)
       return false;
 
+    // External subtitles with unknown language are always relevant
+    const bool isUnknownLang = ss.language.empty() || ss.language == "und";
+    const bool isSameSubLang = g_LangCodeExpander.CompareISO639Codes(ss.language, m_subLang);
+
     const bool isExternal = STREAM_SOURCE_MASK(ss.source) == STREAM_SOURCE_DEMUX_SUB ||
                             STREAM_SOURCE_MASK(ss.source) == STREAM_SOURCE_TEXT;
     const bool isCC = STREAM_SOURCE_MASK(ss.source) == STREAM_SOURCE_VIDEOMUX;
 
-    // External subtitles with unknown language always allow it
-    if (isExternal && (ss.language.empty() || ss.language == "und"))
+    if (isExternal)
     {
-      return true;
+      if (isUnknownLang)
+        return true;
     }
-
-    const bool isSameSubLang = g_LangCodeExpander.CompareISO639Codes(ss.language, m_subLang);
 
     if (m_isPrefHearingImp)
     {
@@ -226,14 +233,22 @@ public:
         return true;
 
       // to consider CC streams may not have the language code
-      if ((ss.flags & StreamFlags::FLAG_HEARING_IMPAIRED) &&
-          (isSameSubLang || (isCC && (ss.language.empty() || ss.language == "und"))))
+      if ((ss.flags & StreamFlags::FLAG_HEARING_IMPAIRED))
       {
-        return true;
+        if (isSameSubLang)
+          return true;
+        else if (isCC)
+        {
+          if (isUnknownLang)
+            return true;
+        }
       }
       // fallback to regular subtitles
-      if (isSameSubLang && (ss.flags & FLAG_FORCED) == 0)
-        return true;
+      if (isSameSubLang)
+      {
+        if ((ss.flags & FLAG_FORCED) == 0)
+          return true;
+      }
 
       return false;
     }
@@ -245,18 +260,29 @@ public:
     }
     else if (m_isPrefForced)
     {
-      if ((ss.flags & StreamFlags::FLAG_FORCED) && isSameSubLang)
-        return true;
+      if (isSameSubLang)
+      {
+        if ((ss.flags & StreamFlags::FLAG_FORCED))
+          return true;
+      }
       else
         return false;
     }
 
     // can fall here only when "forced" and "impaired" are disabled,
     // it always enable subs if language is unknown for external and CC
-    if ((isSameSubLang || (isCC && (ss.language.empty() || ss.language == "und"))) &&
-        (ss.flags & FLAG_FORCED) == 0 && (ss.flags & FLAG_HEARING_IMPAIRED) == 0)
+    if ((ss.flags & FLAG_FORCED) == 0)
     {
-      return true;
+      if ((ss.flags & FLAG_HEARING_IMPAIRED) == 0)
+      {
+        if (isSameSubLang)
+          return true;
+        else if (isCC)
+        {
+          if (isUnknownLang)
+            return true;
+        }
+      }
     }
 
     return false;
@@ -273,6 +299,9 @@ public:
 
     // prefer external subs (note that this prevents any fallback to internal subs)
     PREDICATE_RETURN(isLexternal, isRexternal);
+
+    const bool isLUnknownLang = lh.language.empty() || lh.language == "und";
+    const bool isRUnknownLang = rh.language.empty() || rh.language == "und";
 
     const bool isLSameSubLang = g_LangCodeExpander.CompareISO639Codes(lh.language, m_subLang);
     const bool isRSameSubLang = g_LangCodeExpander.CompareISO639Codes(rh.language, m_subLang);
@@ -346,8 +375,8 @@ public:
     // if all previous conditions do not match, allow fallback to "unknown" language
     if (!m_isPrefForced)
     {
-      PREDICATE_RETURN(isLincluded && (lh.language.empty() || lh.language == "und"),
-                       isRincluded && (rh.language.empty() || rh.language == "und"));
+      PREDICATE_RETURN(isLincluded && isLUnknownLang,
+                       isRincluded && isRUnknownLang);
     }
 
     return false;
