@@ -164,11 +164,24 @@ private:
   bool m_isPrefOriginal;
   bool m_isPrefForced;
   bool m_isPrefHearingImp;
-  bool m_isSubNone;
+  bool m_isPrefNone;
   int m_subStream;
 
   /*!
-   * \brief Decides if a SelectionStream has all given flags.
+   * \brief Checks if a language is unknown.
+   */
+  constexpr bool IsUnknownLang(std::string_view language)
+  {
+    if (language.empty())
+      return true;
+    else if (language == "und")
+      return true;
+    else
+      return false;
+  }
+
+  /*!
+   * \brief Checks if a SelectionStream has all given flags.
    * 
    * \param stream the SelectionStream to check
    * \param flag the flags to check for
@@ -190,7 +203,7 @@ public:
     const std::string subLangSetting =
         settings->GetString(CSettings::SETTING_LOCALE_SUBTITLELANGUAGE);
 
-    m_isSubNone = StringUtils::EqualsNoCase(subLangSetting, "none");
+    m_isPrefNone = StringUtils::EqualsNoCase(subLangSetting, "none");
     m_isPrefOriginal = StringUtils::EqualsNoCase(subLangSetting, "original");
     m_isPrefForced = StringUtils::EqualsNoCase(subLangSetting, "forced_only");
     m_isPrefHearingImp = settings->GetBool(CSettings::SETTING_ACCESSIBILITY_SUBHEARING);
@@ -216,54 +229,50 @@ public:
   /*!
    * \brief Decides if the given (subtitle) SelectionStream can match user settings.
    * 
-   * \param ss the subtitle SelectionStream to compare
+   * \param stream the subtitle SelectionStream to compare
    * \return whether the given stream can match user settings
    */
-  bool relevant(const SelectionStream& ss) const
+  bool relevant(const SelectionStream& stream) const
   {
-    if (ss.type_index == m_subStream)
+    if (stream.type_index == m_subStream)
       return true;
 
-    if (m_isSubNone)
+    if (m_isPrefNone)
       return false;
 
     // External subtitles with unknown language are always relevant
-    const bool isUnknownLang = ss.language.empty() || ss.language == "und";
-    const bool isSameSubLang = g_LangCodeExpander.CompareISO639Codes(ss.language, m_subLang);
-
-    const bool isExternal = STREAM_SOURCE_MASK(ss.source) == STREAM_SOURCE_DEMUX_SUB ||
-                            STREAM_SOURCE_MASK(ss.source) == STREAM_SOURCE_TEXT;
-    const bool isCC = STREAM_SOURCE_MASK(ss.source) == STREAM_SOURCE_VIDEOMUX;
-
-    if (isExternal)
+    if (IsUnknownLang(stream))
     {
-      if (isUnknownLang)
+      const bool isExternal = STREAM_SOURCE_MASK(stream.source) == STREAM_SOURCE_DEMUX_SUB ||
+                              STREAM_SOURCE_MASK(stream.source) == STREAM_SOURCE_TEXT;
+
+      if (isExternal)
         return true;
     }
 
+    const bool isSameSubLang = g_LangCodeExpander.CompareISO639Codes(stream.language, m_subLang);
+    const bool isCC = STREAM_SOURCE_MASK(stream.source) == STREAM_SOURCE_VIDEOMUX;
+
     if (m_isPrefHearingImp)
     {
-      if (HasFlags(ss, FLAG_ORIGINAL))
+      if (HasFlags(stream, FLAG_HEARING_IMPAIRED))
       {
-        if (HasFlags(ss, FLAG_HEARING_IMPAIRED))
+        if (HasFlags(stream, FLAG_ORIGINAL))
           return true;
-      }
 
       // to consider CC streams may not have the language code
-      if (HasFlags(ss, FLAG_HEARING_IMPAIRED))
-      {
         if (isSameSubLang)
           return true;
         else if (isCC)
         {
-          if (isUnknownLang)
+          if (IsUnknownLang(stream))
             return true;
         }
       }
       // fallback to regular subtitles
       if (isSameSubLang)
       {
-        if (!HasFlags(ss, FLAG_FORCED))
+        if (!HasFlags(stream, FLAG_FORCED))
           return true;
       }
 
@@ -272,14 +281,14 @@ public:
 
     if (m_isPrefOriginal)
     {
-      if (HasFlags(ss, FLAG_ORIGINAL))
+      if (HasFlags(stream, FLAG_ORIGINAL))
         return true;
     }
     else if (m_isPrefForced)
     {
       if (isSameSubLang)
       {
-        if (HasFlags(ss, FLAG_FORCED))
+        if (HasFlags(stream, FLAG_FORCED))
           return true;
       }
       else
@@ -287,16 +296,16 @@ public:
     }
 
     // can fall here only when "forced" and "impaired" are disabled,
-    // it always enable subs if language is unknown for external and CC
-    if (!HasFlags(ss, FLAG_FORCED))
+    if (!HasFlags(stream, FLAG_FORCED))
     {
-      if (!HasFlags(ss, FLAG_HEARING_IMPAIRED))
+      if (!HasFlags(stream, FLAG_HEARING_IMPAIRED))
       {
+        // to consider CC streams may not have the language code
         if (isSameSubLang)
           return true;
         else if (isCC)
         {
-          if (isUnknownLang)
+          if (IsUnknownLang(stream))
             return true;
         }
       }
@@ -316,9 +325,6 @@ public:
 
     // prefer external subs (note that this prevents any fallback to internal subs)
     PREDICATE_RETURN(isLexternal, isRexternal);
-
-    const bool isLUnknownLang = lh.language.empty() || lh.language == "und";
-    const bool isRUnknownLang = rh.language.empty() || rh.language == "und";
 
     const bool isLSameSubLang = g_LangCodeExpander.CompareISO639Codes(lh.language, m_subLang);
     const bool isRSameSubLang = g_LangCodeExpander.CompareISO639Codes(rh.language, m_subLang);
@@ -369,8 +375,8 @@ public:
     else if (m_isPrefForced)
     {
       const int checkFlags = FLAG_FORCED | FLAG_DEFAULT;
-      PREDICATE_RETURN(HasFlags(lh, checkFlags) && isLSameSubLang,
-                       HasFlags(rh, checkFlags) && isRSameSubLang);
+      PREDICATE_RETURN(HasFlags(lh, checkFlags) && IsUnknownLang(lh),
+                       HasFlags(rh, checkFlags) && IsUnknownLang(rh));
 
       PREDICATE_RETURN(HasFlags(lh, FLAG_FORCED) && isLSameSubLang,
                        HasFlags(rh, FLAG_FORCED) && isRSameSubLang);
@@ -388,8 +394,8 @@ public:
     // if all previous conditions do not match, allow fallback to "unknown" language
     if (!m_isPrefForced)
     {
-      PREDICATE_RETURN(isLincluded && isLUnknownLang,
-                       isRincluded && isRUnknownLang);
+      PREDICATE_RETURN(isLincluded && IsUnknownLang(lh),
+                       isRincluded && IsUnknownLang(rh));
     }
 
     return false;
