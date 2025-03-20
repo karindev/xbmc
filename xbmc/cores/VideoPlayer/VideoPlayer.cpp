@@ -146,6 +146,39 @@ public:
   };
 };
 
+namespace
+{
+
+/*!
+  * \brief Checks if a language is unknown.
+  */
+constexpr bool IsUnknownLang(std::string_view language)
+{
+  if (language.empty())
+    return true;
+  else if (language == "und")
+    return true;
+  else
+    return false;
+}
+
+/*!
+  * \brief Checks if given flags contain other flags.
+  * 
+  * \param flags the flags to compare
+  * \param checkFlags the flags to check for
+  * \return true if all the flags are contained and false if they are not
+  */
+constexpr bool HasFlags(int flags, int checkFlags)
+{
+  if ((flags & checkFlags) == checkFlags)
+    return true;
+  else
+    return false;
+}
+
+}
+
 /*!
  * \brief The class' operator() decides if the given (subtitle) SelectionStream lh is 'better than'
  *        the given (subtitle) SelectionStream rh.
@@ -166,34 +199,6 @@ private:
   bool m_isPrefHearingImp;
   bool m_isPrefNone;
   int m_subStream;
-
-  /*!
-   * \brief Checks if a language is unknown.
-   */
-  consteval bool IsUnknownLang(std::string_view language)
-  {
-    if (language.empty())
-      return true;
-    else if (language == "und")
-      return true;
-    else
-      return false;
-  }
-
-  /*!
-   * \brief Checks if given flags contain other flags.
-   * 
-   * \param flags the flags to compare
-   * \param checkFlags the flags to check for
-   * \return true if all the flags are contained and false if they are not
-   */
-  consteval bool HasFlags(int flags, int checkFlags)
-  {
-    if ((flags & checkFlags) == checkFlags)
-      return true;
-    else
-      return false;
-  }
 
 public:
   explicit PredicateSubtitlePriority(const std::string& lang, int stream)
