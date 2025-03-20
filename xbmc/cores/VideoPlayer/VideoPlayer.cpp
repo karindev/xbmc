@@ -83,113 +83,6 @@ using namespace std::chrono_literals;
       return (lh) > (rh); \
   } while(0)
 
-class PredicateSubtitleFilter
-{
-private:
-  // Played audio language,
-  // may differ from the language setting if the movie does not provide it the desired language
-  std::string m_playedAudioLang;
-  std::string m_subLang;
-  bool m_isPrefOriginal;
-  bool m_isPrefForced;
-  bool m_isPrefHearingImp;
-  bool m_isSubNone;
-  int m_subStream;
-
-public:
-  /*
-   * \brief The class' operator() decides if the given (subtitle) SelectionStream can match user settings, so relevant.
-   *        If the subtitle is relevant "false" is returned.
-   */
-  explicit PredicateSubtitleFilter(const std::string& lang, int subStream)
-    : m_playedAudioLang(lang), m_subStream(subStream)
-  {
-    auto settings = CServiceBroker::GetSettingsComponent()->GetSettings();
-    const std::string subLangSetting =
-        settings->GetString(CSettings::SETTING_LOCALE_SUBTITLELANGUAGE);
-
-    m_isSubNone = StringUtils::EqualsNoCase(subLangSetting, "none");
-    m_isPrefOriginal = StringUtils::EqualsNoCase(subLangSetting, "original");
-    m_isPrefForced = StringUtils::EqualsNoCase(subLangSetting, "forced_only");
-    m_isPrefHearingImp = settings->GetBool(CSettings::SETTING_ACCESSIBILITY_SUBHEARING);
-
-    m_subLang = g_langInfo.GetSubtitleLanguage(false);
-    if (m_subLang.empty()) // No language set (due to none, original, forced_only settings)
-    {
-      m_subLang = g_langInfo.GetAudioLanguage(false);
-      if (m_subLang.empty()) // No language set (due to default, original, mediadefault settings)
-        m_subLang = m_playedAudioLang;
-    }
-
-    // Dont allow "forced" setting to be combined with "impaired" setting
-    if (m_isPrefHearingImp && m_isPrefForced)
-      m_isPrefForced = false;
-  };
-
-  bool operator()(const SelectionStream& ss) const
-  {
-    if (ss.type_index == m_subStream)
-      return false;
-
-    if (m_isSubNone)
-      return true;
-
-    const bool isExternal = STREAM_SOURCE_MASK(ss.source) == STREAM_SOURCE_DEMUX_SUB ||
-                            STREAM_SOURCE_MASK(ss.source) == STREAM_SOURCE_TEXT;
-    const bool isCC = STREAM_SOURCE_MASK(ss.source) == STREAM_SOURCE_VIDEOMUX;
-
-    // External subtitles with unknown language always allow it
-    if (isExternal && (ss.language.empty() || ss.language == "und"))
-    {
-      return false;
-    }
-
-    const bool isSameSubLang = g_LangCodeExpander.CompareISO639Codes(ss.language, m_subLang);
-
-    if (m_isPrefHearingImp)
-    {
-      const int checkFlags = FLAG_ORIGINAL | FLAG_HEARING_IMPAIRED;
-      if ((ss.flags & checkFlags) == checkFlags)
-        return false;
-
-      // to consider CC streams may not have the language code
-      if ((ss.flags & StreamFlags::FLAG_HEARING_IMPAIRED) &&
-          (isSameSubLang || (isCC && (ss.language.empty() || ss.language == "und"))))
-      {
-        return false;
-      }
-      // fallback to regular subtitles
-      if (isSameSubLang && (ss.flags & FLAG_FORCED) == 0)
-        return false;
-
-      return true;
-    }
-
-    if (m_isPrefOriginal)
-    {
-      if ((ss.flags & FLAG_ORIGINAL))
-        return false;
-    }
-    else if (m_isPrefForced)
-    {
-      if ((ss.flags & StreamFlags::FLAG_FORCED) && isSameSubLang)
-        return false;
-      else
-        return true;
-    }
-
-    // can fall here only when "forced" and "impaired" are disabled,
-    // it always enable subs if language is unknown for external and CC
-    if ((isSameSubLang || (isCC && (ss.language.empty() || ss.language == "und"))) &&
-        (ss.flags & FLAG_FORCED) == 0 && (ss.flags & FLAG_HEARING_IMPAIRED) == 0)
-    {
-      return false;
-    }
-
-    return true;
-  }
-};
-
 class PredicateAudioFilter
 {
 private:
@@ -253,7 +146,7 @@ public:
   };
 };
 
-/*
+/*!
  * \brief The class' operator() decides if the given (subtitle) SelectionStream lh is 'better than'
  *        the given (subtitle) SelectionStream rh.
  *        If lh is 'better than' rh the return value is true, false otherwise.
@@ -271,17 +164,85 @@ private:
   bool m_isPrefOriginal;
   bool m_isPrefForced;
   bool m_isPrefHearingImp;
-  PredicateSubtitleFilter m_filter;
+  bool m_isSubNone;
   int m_subStream;
+
+  /*!
+   * \brief Decides if the given (subtitle) SelectionStream can match user settings, so relevant.
+   *        If the subtitle is relevant "false" is returned.
+   */
+  bool Filter(const SelectionStream& ss) const
+  {
+    if (ss.type_index == m_subStream)
+      return false;
+
+    if (m_isSubNone)
+      return true;
+
+    const bool isExternal = STREAM_SOURCE_MASK(ss.source) == STREAM_SOURCE_DEMUX_SUB ||
+                            STREAM_SOURCE_MASK(ss.source) == STREAM_SOURCE_TEXT;
+    const bool isCC = STREAM_SOURCE_MASK(ss.source) == STREAM_SOURCE_VIDEOMUX;
+
+    // External subtitles with unknown language always allow it
+    if (isExternal && (ss.language.empty() || ss.language == "und"))
+    {
+      return false;
+    }
+
+    const bool isSameSubLang = g_LangCodeExpander.CompareISO639Codes(ss.language, m_subLang);
+
+    if (m_isPrefHearingImp)
+    {
+      const int checkFlags = FLAG_ORIGINAL | FLAG_HEARING_IMPAIRED;
+      if ((ss.flags & checkFlags) == checkFlags)
+        return false;
+
+      // to consider CC streams may not have the language code
+      if ((ss.flags & StreamFlags::FLAG_HEARING_IMPAIRED) &&
+          (isSameSubLang || (isCC && (ss.language.empty() || ss.language == "und"))))
+      {
+        return false;
+      }
+      // fallback to regular subtitles
+      if (isSameSubLang && (ss.flags & FLAG_FORCED) == 0)
+        return false;
+
+      return true;
+    }
+
+    if (m_isPrefOriginal)
+    {
+      if ((ss.flags & FLAG_ORIGINAL))
+        return false;
+    }
+    else if (m_isPrefForced)
+    {
+      if ((ss.flags & StreamFlags::FLAG_FORCED) && isSameSubLang)
+        return false;
+      else
+        return true;
+    }
+
+    // can fall here only when "forced" and "impaired" are disabled,
+    // it always enable subs if language is unknown for external and CC
+    if ((isSameSubLang || (isCC && (ss.language.empty() || ss.language == "und"))) &&
+        (ss.flags & FLAG_FORCED) == 0 && (ss.flags & FLAG_HEARING_IMPAIRED) == 0)
+    {
+      return false;
+    }
+
+    return true;
+  }
 
 public:
   explicit PredicateSubtitlePriority(const std::string& lang, int stream)
-    : m_playedAudioLang(lang), m_filter(lang, stream), m_subStream(stream)
+    : m_playedAudioLang(lang), m_subStream(stream)
   {
     auto settings = CServiceBroker::GetSettingsComponent()->GetSettings();
     const std::string subLangSetting =
         settings->GetString(CSettings::SETTING_LOCALE_SUBTITLELANGUAGE);
 
+    m_isSubNone = StringUtils::EqualsNoCase(subLangSetting, "none");
     m_isPrefOriginal = StringUtils::EqualsNoCase(subLangSetting, "original");
     m_isPrefForced = StringUtils::EqualsNoCase(subLangSetting, "forced_only");
     m_isPrefHearingImp = settings->GetBool(CSettings::SETTING_ACCESSIBILITY_SUBHEARING);
@@ -300,7 +261,7 @@ public:
   };
 
   // \brief Check if a stream can match the user settings
-  bool relevant(const SelectionStream& ss) const { return !m_filter(ss); }
+  bool relevant(const SelectionStream& ss) const { return !Filter(ss); }
 
   bool operator()(const SelectionStream& lh, const SelectionStream& rh) const
   {
