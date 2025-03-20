@@ -170,7 +170,7 @@ private:
   /*!
    * \brief Checks if a language is unknown.
    */
-  constexpr bool IsUnknownLang(std::string_view language)
+  consteval bool IsUnknownLang(std::string_view language)
   {
     if (language.empty())
       return true;
@@ -181,15 +181,15 @@ private:
   }
 
   /*!
-   * \brief Checks if a SelectionStream has all given flags.
+   * \brief Checks if given flags contain other flags.
    * 
-   * \param stream the SelectionStream to check
-   * \param flag the flags to check for
-   * \return true if the SelectionStream has all the flags and false if it does not
+   * \param flags the flags to compare
+   * \param checkFlags the flags to check for
+   * \return true if all the flags are contained and false if they are not
    */
-  bool HasFlags(const SelectionStream& stream, StreamFlags flags) const
+  consteval bool HasFlags(int flags, int checkFlags)
   {
-    if ((stream.flags & flags) == flags)
+    if ((flags & checkFlags) == checkFlags)
       return true;
     else
       return false;
@@ -241,11 +241,10 @@ public:
       return false;
 
     // External subtitles with unknown language are always relevant
-    if (IsUnknownLang(stream))
+    if (IsUnknownLang(stream.language))
     {
       const bool isExternal = STREAM_SOURCE_MASK(stream.source) == STREAM_SOURCE_DEMUX_SUB ||
                               STREAM_SOURCE_MASK(stream.source) == STREAM_SOURCE_TEXT;
-
       if (isExternal)
         return true;
     }
@@ -255,9 +254,9 @@ public:
 
     if (m_isPrefHearingImp)
     {
-      if (HasFlags(stream, FLAG_HEARING_IMPAIRED))
+      if (HasFlags(stream.flags, FLAG_HEARING_IMPAIRED))
       {
-        if (HasFlags(stream, FLAG_ORIGINAL))
+        if (HasFlags(stream.flags, FLAG_ORIGINAL))
           return true;
 
       // to consider CC streams may not have the language code
@@ -265,14 +264,14 @@ public:
           return true;
         else if (isCC)
         {
-          if (IsUnknownLang(stream))
+          if (IsUnknownLang(stream.language))
             return true;
         }
       }
       // fallback to regular subtitles
       if (isSameSubLang)
       {
-        if (!HasFlags(stream, FLAG_FORCED))
+        if (!HasFlags(stream.flags, FLAG_FORCED))
           return true;
       }
 
@@ -281,14 +280,14 @@ public:
 
     if (m_isPrefOriginal)
     {
-      if (HasFlags(stream, FLAG_ORIGINAL))
+      if (HasFlags(stream.flags, FLAG_ORIGINAL))
         return true;
     }
     else if (m_isPrefForced)
     {
       if (isSameSubLang)
       {
-        if (HasFlags(stream, FLAG_FORCED))
+        if (HasFlags(stream.flags, FLAG_FORCED))
           return true;
       }
       else
@@ -296,16 +295,16 @@ public:
     }
 
     // can fall here only when "forced" and "impaired" are disabled,
-    if (!HasFlags(stream, FLAG_FORCED))
+    if (!HasFlags(stream.flags, FLAG_FORCED))
     {
-      if (!HasFlags(stream, FLAG_HEARING_IMPAIRED))
+      if (!HasFlags(stream.flags, FLAG_HEARING_IMPAIRED))
       {
         // to consider CC streams may not have the language code
         if (isSameSubLang)
           return true;
         else if (isCC)
         {
-          if (IsUnknownLang(stream))
+          if (IsUnknownLang(stream.language))
             return true;
         }
       }
@@ -330,72 +329,72 @@ public:
     const bool isRSameSubLang = g_LangCodeExpander.CompareISO639Codes(rh.language, m_subLang);
 
     // "is included" is used to not consider forced and impaired
-    const bool isLincluded = !HasFlags(lh, FLAG_FORCED) && !HasFlags(lh, FLAG_HEARING_IMPAIRED);
-    const bool isRincluded = !HasFlags(rh, FLAG_FORCED) && !HasFlags(rh, FLAG_HEARING_IMPAIRED);
+    const bool isLincluded = !HasFlags(lh.flags, FLAG_FORCED) && !HasFlags(lh.flags, FLAG_HEARING_IMPAIRED);
+    const bool isRincluded = !HasFlags(rh.flags, FLAG_FORCED) && !HasFlags(rh.flags, FLAG_HEARING_IMPAIRED);
 
     if (m_isPrefHearingImp)
     {
       if (m_isPrefOriginal)
       {
         int checkFlags = FLAG_ORIGINAL | FLAG_HEARING_IMPAIRED | FLAG_DEFAULT;
-        PREDICATE_RETURN(HasFlags(lh, checkFlags), HasFlags(rh, checkFlags));
+        PREDICATE_RETURN(HasFlags(lh.flags, checkFlags), HasFlags(rh.flags, checkFlags));
 
         checkFlags = FLAG_ORIGINAL | FLAG_HEARING_IMPAIRED;
-        PREDICATE_RETURN(HasFlags(lh, checkFlags), HasFlags(rh, checkFlags));
+        PREDICATE_RETURN(HasFlags(lh.flags, checkFlags), HasFlags(rh.flags, checkFlags));
       }
 
       int checkFlags = FLAG_HEARING_IMPAIRED | FLAG_DEFAULT;
-      PREDICATE_RETURN(HasFlags(lh, checkFlags) && isLSameSubLang,
-                       HasFlags(rh, checkFlags) && isRSameSubLang);
+      PREDICATE_RETURN(HasFlags(lh.flags, checkFlags) && isLSameSubLang,
+                       HasFlags(rh.flags, checkFlags) && isRSameSubLang);
 
       checkFlags = FLAG_HEARING_IMPAIRED;
-      PREDICATE_RETURN(HasFlags(lh, checkFlags) && isLSameSubLang,
-                       HasFlags(rh, checkFlags) && isRSameSubLang);
+      PREDICATE_RETURN(HasFlags(lh.flags, checkFlags) && isLSameSubLang,
+                       HasFlags(rh.flags, checkFlags) && isRSameSubLang);
     }
 
     if (m_isPrefOriginal)
     {
       // try find original (default) in audio language
       const int checkFlags = FLAG_ORIGINAL | FLAG_DEFAULT;
-      PREDICATE_RETURN(isLincluded && HasFlags(lh, checkFlags) && isLSameSubLang,
-                       isRincluded && HasFlags(rh, checkFlags) && isRSameSubLang);
+      PREDICATE_RETURN(isLincluded && HasFlags(lh.flags, checkFlags) && isLSameSubLang,
+                       isRincluded && HasFlags(rh.flags, checkFlags) && isRSameSubLang);
 
       // try find original in audio language
-      PREDICATE_RETURN(isLincluded && HasFlags(lh, FLAG_ORIGINAL) && isLSameSubLang,
-                       isRincluded && HasFlags(rh, FLAG_ORIGINAL) && isRSameSubLang);
+      PREDICATE_RETURN(isLincluded && HasFlags(lh.flags, FLAG_ORIGINAL) && isLSameSubLang,
+                       isRincluded && HasFlags(rh.flags, FLAG_ORIGINAL) && isRSameSubLang);
 
       // try find original (default) with any language
-      PREDICATE_RETURN(isLincluded && HasFlags(lh, checkFlags),
-                       isRincluded && HasFlags(rh, checkFlags));
+      PREDICATE_RETURN(isLincluded && HasFlags(lh.flags, checkFlags),
+                       isRincluded && HasFlags(rh.flags, checkFlags));
 
       // try find original with any language
-      PREDICATE_RETURN(isLincluded && HasFlags(lh, FLAG_ORIGINAL),
-                       isRincluded && HasFlags(rh, FLAG_ORIGINAL));
+      PREDICATE_RETURN(isLincluded && HasFlags(lh.flags, FLAG_ORIGINAL),
+                       isRincluded && HasFlags(rh.flags, FLAG_ORIGINAL));
     }
     else if (m_isPrefForced)
     {
       const int checkFlags = FLAG_FORCED | FLAG_DEFAULT;
-      PREDICATE_RETURN(HasFlags(lh, checkFlags) && IsUnknownLang(lh),
-                       HasFlags(rh, checkFlags) && IsUnknownLang(rh));
+      PREDICATE_RETURN(HasFlags(lh.flags, checkFlags) && IsUnknownLang(lh.language),
+                       HasFlags(rh.flags, checkFlags) && IsUnknownLang(rh.language));
 
-      PREDICATE_RETURN(HasFlags(lh, FLAG_FORCED) && isLSameSubLang,
-                       HasFlags(rh, FLAG_FORCED) && isRSameSubLang);
+      PREDICATE_RETURN(HasFlags(lh.flags, FLAG_FORCED) && isLSameSubLang,
+                       HasFlags(rh.flags, FLAG_FORCED) && isRSameSubLang);
 
       // dont return false here, allow you to fallback on regular sub
       // its just listitem pre-selection courtesy, in any case the sub will be not enabled
     }
 
     // try find regular (default)
-    PREDICATE_RETURN(isLincluded && HasFlags(lh, FLAG_DEFAULT) && isLSameSubLang,
-                     isRincluded && HasFlags(rh, FLAG_DEFAULT) && isRSameSubLang);
+    PREDICATE_RETURN(isLincluded && HasFlags(lh.flags, FLAG_DEFAULT) && isLSameSubLang,
+                     isRincluded && HasFlags(rh.flags, FLAG_DEFAULT) && isRSameSubLang);
     // try find regular
     PREDICATE_RETURN(isLincluded && isLSameSubLang, isRincluded && isRSameSubLang);
 
     // if all previous conditions do not match, allow fallback to "unknown" language
     if (!m_isPrefForced)
     {
-      PREDICATE_RETURN(isLincluded && IsUnknownLang(lh),
-                       isRincluded && IsUnknownLang(rh));
+      PREDICATE_RETURN(isLincluded && IsUnknownLang(lh.language),
+                       isRincluded && IsUnknownLang(rh.language));
     }
 
     return false;
