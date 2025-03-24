@@ -168,7 +168,7 @@ constexpr bool IsUnknownLang(std::string_view language)
   */
 constexpr bool HasFlags(int flags, int checkFlags)
 {
-  return (flags & checkFlags) == checkFlags
+  return (flags & checkFlags) == checkFlags;
 }
 
 }
