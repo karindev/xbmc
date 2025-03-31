@@ -388,12 +388,6 @@ public:
                      isRincluded && HasFlags(rh.flags, FLAG_DEFAULT) && isRSameSubLang);
     // try find regular
     PREDICATE_RETURN(isLincluded && isLSameSubLang, isRincluded && isRSameSubLang);
-    // try find hearing impaired (default)
-    PREDICATE_RETURN(!HasFlags(lh.flags, FLAG_FORCED) && HasFlags(lh.flags, FLAG_DEFAULT) && isLSameSubLang,
-                     !HasFlags(lh.flags, FLAG_FORCED) && HasFlags(rh.flags, FLAG_DEFAULT) && isRSameSubLang);
-    // try find hearing impaired
-    PREDICATE_RETURN(!HasFlags(lh.flags, FLAG_FORCED) && isLSameSubLang,
-                     !HasFlags(rh.flags, FLAG_FORCED) && isRSameSubLang);
 
     // if all previous conditions do not match, allow fallback to "unknown" language
     if (!m_isPrefForced)
