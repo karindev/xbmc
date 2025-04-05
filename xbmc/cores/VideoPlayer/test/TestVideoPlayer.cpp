@@ -16,7 +16,6 @@
 #include <string>
 
 #include <gtest/gtest.h>
-#include "gtest/gtest_prod.h" 
 
 // Forward declare class not in VideoPlayer.h
 class PredicateSubtitlePriority
