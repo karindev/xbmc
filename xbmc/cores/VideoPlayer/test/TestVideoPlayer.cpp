@@ -142,7 +142,7 @@ struct RelevantTestCase
   bool isRelevant;
 };
 
-class TestRelevant : public testing::WithParamInterface<RelevantTestCase>,
+class TestSubtitleRelevant : public testing::WithParamInterface<RelevantTestCase>,
                                     public TestPredicateSubtitlePriority
 {
 };
@@ -191,8 +191,8 @@ const auto relevant_cases = std::array
   RelevantTestCase{"swe", false, "und", "eng", FLAG_ORIGINAL, false}
 };
 
-INSTANTIATE_TEST_SUITE_P(RelevantCases, TestRelevant, testing::ValuesIn(relevant_cases),
-[](const testing::TestParamInfo<TestRelevant::ParamType>& info) {
+INSTANTIATE_TEST_SUITE_P(RelevantCases, TestSubtitleRelevant, testing::ValuesIn(relevant_cases),
+[](const testing::TestParamInfo<TestSubtitleRelevant::ParamType>& info) {
   RelevantTestCase testCase = info.param;
   std::boolalpha;
   std::string name = 
@@ -204,7 +204,7 @@ INSTANTIATE_TEST_SUITE_P(RelevantCases, TestRelevant, testing::ValuesIn(relevant
   return name;
 });
 
-TEST_P(TestRelevant, StreamRelevantToSettings)
+TEST_P(TestSubtitleRelevant, StreamRelevantToSettings)
 {
   RelevantTestCase testCase = GetParam();
   
