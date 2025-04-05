@@ -10,6 +10,7 @@
 
 #include "addons/kodi-dev-kit/include/kodi/c-api/addon-instance/pvr/pvr_general.h"
 #include "interfaces/IAnnouncer.h"
+#include "powermanagement/PowerState.h"
 #include "pvr/PVRComponentRegistration.h"
 #include "pvr/guilib/PVRGUIActionListener.h"
 #include "pvr/settings/PVRSettings.h"
@@ -93,7 +94,7 @@ enum class PVREvent
   SystemWake,
 };
 
-class CPVRManager : private CThread, public ANNOUNCEMENT::IAnnouncer
+class CPVRManager : private CThread, public ANNOUNCEMENT::IAnnouncer, public CPowerState
 {
 public:
   /*!
@@ -205,12 +206,12 @@ public:
   /*!
    * @brief Propagate event on system sleep
    */
-  void OnSleep();
+  void OnSleep() override;
 
   /*!
    * @brief Propagate event on system wake
    */
-  void OnWake();
+  void OnWake() override;
 
   /*!
    * @brief Get the TV database.

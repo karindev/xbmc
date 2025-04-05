@@ -173,6 +173,12 @@ void CPVRTimers::Process()
 {
   while (!m_bStop)
   {
+    if (IsSleeping())
+    {
+      CThread::Sleep(10s);
+      continue;
+    }
+
     // update all timers not owned by a client (e.g. reminders)
     UpdateEntries(MAX_NOTIFICATION_DELAY.count());
 
@@ -591,8 +597,8 @@ bool CPVRTimers::UpdateEntries(int iMaxNotificationDelay)
 
           if (timer->EndAsUTC() >= now)
           {
-            // Disable reminder after pre-padding time has passed to skip further announcements.
-            if (timer->IsReminder() && !timer->IsDisabled() && timer->StartAsUTC() <= now)
+            // disable timer until timer's end time is due
+            if (!timer->IsDisabled())
             {
               timer->SetState(PVR_TIMER_STATE_DISABLED);
               bChanged = true;

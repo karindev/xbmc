@@ -477,6 +477,7 @@ void CPVRClient::ResetProperties()
   m_prevConnectionState = PVR_CONNECTION_STATE_UNKNOWN;
   m_ignoreClient = false;
   m_priority.reset();
+  m_firstChannelsAdded.reset();
   m_strBackendVersion = DEFAULT_INFO_STRING_VALUE;
   m_strConnectionString = DEFAULT_INFO_STRING_VALUE;
   m_strBackendName = DEFAULT_INFO_STRING_VALUE;
@@ -572,6 +573,7 @@ void CPVRClient::Stop()
 {
   m_bBlockAddonCalls = true;
   m_priority.reset();
+  m_firstChannelsAdded.reset();
 }
 
 void CPVRClient::Continue()
@@ -1985,12 +1987,15 @@ PVR_ERROR CPVRClient::IsRealTimeStream(bool& bRealTime) const
 
 PVR_ERROR CPVRClient::OnSystemSleep()
 {
-  return DoAddonCall(__func__, [](const AddonInstance* addon)
-                     { return addon->toAddon->OnSystemSleep(addon); });
+  const PVR_ERROR ret = DoAddonCall(__func__, [](const AddonInstance* addon)
+                                    { return addon->toAddon->OnSystemSleep(addon); });
+  m_bBlockAddonCalls = true;
+  return ret;
 }
 
 PVR_ERROR CPVRClient::OnSystemWake()
 {
+  m_bBlockAddonCalls = false;
   return DoAddonCall(__func__, [](const AddonInstance* addon)
                      { return addon->toAddon->OnSystemWake(addon); });
 }
