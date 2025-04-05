@@ -37,6 +37,8 @@
 #include <mutex>
 #include <vector>
 
+#include <fmt/chrono.h>
+
 using namespace std::chrono_literals;
 
 namespace ADDON
@@ -80,10 +82,10 @@ bool CRepositoryUpdateJob::DoWork()
 
   MarkFinished();
 
-  if (status == CRepository::STATUS_ERROR)
+  if (status == CRepository::FetchStatus::FETCH_ERROR)
     return false;
 
-  if (status == CRepository::STATUS_NOT_MODIFIED)
+  if (status == CRepository::FetchStatus::NOT_MODIFIED)
   {
     CLog::Log(LOGDEBUG, "CRepositoryUpdateJob[{}] checksum not changed.", m_repo->ID());
     return true;
@@ -225,6 +227,12 @@ static void SetProgressIndicator(CRepositoryUpdateJob* job)
 void CRepositoryUpdater::CheckForUpdates(const ADDON::RepositoryPtr& repo, bool showProgress)
 {
   std::unique_lock<CCriticalSection> lock(m_criticalSection);
+  if (IsSleeping())
+  {
+    CLog::LogF(LOGDEBUG, "Repository update check postponed. System is sleeping.");
+    return;
+  }
+
   auto job = std::find_if(m_jobs.begin(), m_jobs.end(),
       [&](CRepositoryUpdateJob* job){ return job->GetAddon()->ID() == repo->ID(); });
 
@@ -313,6 +321,8 @@ CDateTime CRepositoryUpdater::ClosestNextCheck() const
 
 void CRepositoryUpdater::ScheduleUpdate(UpdateScheduleType scheduleType)
 {
+  using namespace std::chrono;
+
   std::unique_lock<CCriticalSection> lock(m_criticalSection);
   m_timer.Stop(true);
 
@@ -322,14 +332,16 @@ void CRepositoryUpdater::ScheduleUpdate(UpdateScheduleType scheduleType)
   if (!m_addonMgr.HasAddons(AddonType::REPOSITORY))
     return;
 
-  int delta{1};
+  milliseconds delta{1};
   const auto nextCheck = ClosestNextCheck();
   if (nextCheck.IsValid())
   {
-    // Repos were already checked once and we know when to check next
-    delta = std::max(1, (nextCheck - CDateTime::GetCurrentDateTime()).GetSecondsTotal() * 1000);
-    CLog::Log(LOGDEBUG, "CRepositoryUpdater: closest next update check at {} (in {} s)",
-              nextCheck.GetAsLocalizedDateTime(), delta / 1000);
+    // Repos were already checked once and we know when to check next.
+    // delta must be positive and not zero (m_timer.Start() ignores 0 wait time)
+    delta = std::max<milliseconds>(
+        delta, seconds((nextCheck - CDateTime::GetCurrentDateTime()).GetSecondsTotal()));
+    CLog::Log(LOGDEBUG, "CRepositoryUpdater: closest next update check at {} (in {})",
+              nextCheck.GetAsLocalizedDateTime(), duration_cast<seconds>(delta));
   }
 
   if (scheduleType == UpdateScheduleType::Regular)
@@ -337,17 +349,12 @@ void CRepositoryUpdater::ScheduleUpdate(UpdateScheduleType scheduleType)
     // Enforce minimum hold-off time of 1 hour between regular updates - this is especially
     // important to handle all sorts of failure cases (e.g., failure to update the add-on database)
     // that would otherwise lead to an immediate new update attempt and continuous hammering of the servers.
-    delta = std::max(1 * 60 * 60 * 1'000, delta);
-  }
-  else
-  {
-    // delta must be positive and not zero (m_timer.Start() ignores 0 wait time)
-    delta = std::max(1, delta);
+    delta = std::max<milliseconds>(hours(1), delta);
   }
 
-  CLog::Log(LOGDEBUG, "CRepositoryUpdater: checking in {} ms", delta);
+  CLog::Log(LOGDEBUG, "CRepositoryUpdater: checking in {}", delta);
 
-  if (!m_timer.Start(std::chrono::milliseconds(delta)))
+  if (!m_timer.Start(delta))
     CLog::Log(LOGERROR,"CRepositoryUpdater: failed to start timer");
 }
 }
