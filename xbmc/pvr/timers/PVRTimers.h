@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "powermanagement/PowerState.h"
 #include "pvr/settings/PVRSettings.h"
 #include "threads/Thread.h"
 
@@ -65,7 +66,7 @@ protected:
   MapTags m_tags;
 };
 
-class CPVRTimers : public CPVRTimersContainer, private CThread
+class CPVRTimers : public CPVRTimersContainer, private CThread, public CPowerState
 {
 public:
   CPVRTimers();

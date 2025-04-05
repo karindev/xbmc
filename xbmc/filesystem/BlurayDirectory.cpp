@@ -14,6 +14,7 @@
 #include "URL.h"
 #include "filesystem/BlurayCallback.h"
 #include "filesystem/Directory.h"
+#include "filesystem/DirectoryFactory.h"
 #include "guilib/LocalizeStrings.h"
 #include "utils/LangCodeExpander.h"
 #include "utils/RegExp.h"
@@ -51,6 +52,17 @@ void CBlurayDirectory::Dispose()
     bd_close(m_bd);
     m_bd = nullptr;
   }
+}
+
+std::string CBlurayDirectory::GetBasePath(const CURL& url)
+{
+  if (!url.IsProtocol("bluray"))
+    return {};
+
+  const CURL url2(url.GetHostName()); // strip bluray://
+  if (url2.IsProtocol("udf")) // ISO
+    return url2.GetHostName(); // strip udf://
+  return url2.Get(); // BDMV
 }
 
 std::string CBlurayDirectory::GetBlurayTitle()
@@ -284,7 +296,13 @@ bool CBlurayDirectory::InitializeBluray(const std::string &root)
   g_LangCodeExpander.ConvertToISO6392T(g_langInfo.GetDVDMenuLanguage(), langCode);
   bd_set_player_setting_str(m_bd, BLURAY_PLAYER_SETTING_MENU_LANG, langCode.c_str());
 
-  if (!bd_open_files(m_bd, const_cast<std::string*>(&root), CBlurayCallback::dir_open, CBlurayCallback::file_open))
+  m_realPath = root;
+
+  auto fileHandler = CDirectoryFactory::Create(CURL{root});
+  if (fileHandler)
+    m_realPath = fileHandler->ResolveMountPoint(root);
+
+  if (!bd_open_files(m_bd, &m_realPath, CBlurayCallback::dir_open, CBlurayCallback::file_open))
   {
     CLog::Log(LOGERROR, "CBlurayDirectory::InitializeBluray - failed to open {}",
               CURL::GetRedacted(root));

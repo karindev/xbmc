@@ -30,6 +30,7 @@ public:
   bool GetDirectory(const CURL& url, CFileItemList &items) override;
 
   bool InitializeBluray(const std::string &root);
+  static std::string GetBasePath(const CURL& url);
   std::string GetBlurayTitle();
   std::string GetBlurayID();
 
@@ -51,6 +52,7 @@ private:
   CURL          m_url;
   BLURAY*       m_bd = nullptr;
   bool          m_blurayInitialized = false;
+  std::string m_realPath;
 };
 
 }

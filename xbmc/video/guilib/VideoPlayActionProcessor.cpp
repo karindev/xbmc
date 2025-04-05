@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2023 Team Kodi
+ *  Copyright (C) 2023-2025 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -26,39 +26,28 @@
 #include "utils/URIUtils.h"
 #include "utils/Variant.h"
 #include "utils/log.h"
-#include "video/VideoFileItemClassify.h"
 #include "video/VideoUtils.h"
 #include "video/guilib/VideoGUIUtils.h"
-#include "video/guilib/VideoVersionHelper.h"
 
 namespace KODI::VIDEO::GUILIB
 {
-
-Action CVideoPlayActionProcessor::GetDefaultAction()
+namespace
+{
+Action GetDefaultPlayAction()
 {
   return static_cast<Action>(CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(
       CSettings::SETTING_MYVIDEOS_PLAYACTION));
 }
+} // unnamed namespace
 
-bool CVideoPlayActionProcessor::ProcessDefaultAction()
+Action CVideoPlayActionProcessor::GetDefaultAction()
 {
-  return ProcessAction(GetDefaultAction());
+  return GetDefaultPlayAction();
 }
 
-bool CVideoPlayActionProcessor::ProcessAction(Action action)
+bool CVideoPlayActionProcessor::Process(Action action)
 {
-  m_userCancelled = false;
-
-  const auto movie{CVideoVersionHelper::ChooseVideoFromAssets(m_item)};
-  if (movie)
-    m_item = movie;
-  else
-  {
-    m_userCancelled = true;
-    return true; // User cancelled the select menu. We're done.
-  }
-
-  if (m_chooseStackPart)
+  if (m_chooseStackPart && m_chosenStackPart == 0)
   {
     if (!URIUtils::IsStack(m_item->GetDynPath()))
     {
@@ -74,11 +63,6 @@ bool CVideoPlayActionProcessor::ProcessAction(Action action)
     }
   }
 
-  return Process(action);
-}
-
-bool CVideoPlayActionProcessor::Process(Action action)
-{
   switch (action)
   {
     case ACTION_PLAY_OR_RESUME:
@@ -153,7 +137,11 @@ Action CVideoPlayActionProcessor::ChoosePlayOrResume(const std::string& resumeSt
 
 Action CVideoPlayActionProcessor::ChoosePlayOrResume(const CFileItem& item)
 {
-  return ChoosePlayOrResume(VIDEO::UTILS::GetResumeString(item));
+  const Action action{GetDefaultPlayAction()};
+  if (action == VIDEO::GUILIB::ACTION_PLAY_OR_RESUME)
+    return ChoosePlayOrResume(VIDEO::UTILS::GetResumeString(item));
+  else
+    return action;
 }
 
 unsigned int CVideoPlayActionProcessor::ChooseStackPart() const
