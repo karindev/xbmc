@@ -172,6 +172,7 @@ constexpr bool HasFlags(int flags, int checkFlags)
 }
 
 }
+#include "gtest/gtest_prod.h" 
 
 /*!
  * \brief The class' operator() decides if the given (subtitle) SelectionStream lh is 'better than'
@@ -185,13 +186,13 @@ constexpr bool HasFlags(int flags, int checkFlags)
  */
 class PredicateSubtitlePriority
 {
-private:
+  private:
   std::string m_playedAudioLang;
   std::string m_subLang;
   bool m_isPrefOriginal;
   bool m_isPrefForced;
   bool m_isPrefHearingImp;
-  bool m_isPrefNone;
+  bool m_isSubNone;
   int m_subStream;
 
 public:
@@ -202,111 +203,88 @@ public:
     const std::string subLangSetting =
         settings->GetString(CSettings::SETTING_LOCALE_SUBTITLELANGUAGE);
 
-    m_isPrefNone = StringUtils::EqualsNoCase(subLangSetting, "none");
+    m_isSubNone = StringUtils::EqualsNoCase(subLangSetting, "none");
     m_isPrefOriginal = StringUtils::EqualsNoCase(subLangSetting, "original");
     m_isPrefForced = StringUtils::EqualsNoCase(subLangSetting, "forced_only");
     m_isPrefHearingImp = settings->GetBool(CSettings::SETTING_ACCESSIBILITY_SUBHEARING);
 
     m_subLang = g_langInfo.GetSubtitleLanguage(false);
-    // No language set (due to none, original, forced_only settings)
-    if (m_subLang.empty())
+    if (m_subLang.empty()) // No language set (due to none, original, forced_only settings)
     {
       m_subLang = g_langInfo.GetAudioLanguage(false);
-      // No language set (due to default, original, mediadefault settings)
-      if (m_subLang.empty())
+      if (m_subLang.empty()) // No language set (due to default, original, mediadefault settings)
         m_subLang = m_playedAudioLang;
     }
 
-    // Don't allow "forced" setting to be combined with "impaired" setting
-    if (m_isPrefHearingImp)
-    {
-      if (m_isPrefForced)
-        m_isPrefForced = false;
-    }
+    // Dont allow "forced" setting to be combined with "impaired" setting
+    if (m_isPrefHearingImp && m_isPrefForced)
+      m_isPrefForced = false;
   };
 
   /*!
    * \brief Decides if the given (subtitle) SelectionStream can match user settings.
    * 
-   * \param stream the subtitle SelectionStream to compare
+   * \param ss the subtitle SelectionStream to compare
    * \return whether the given stream can match user settings
    */
-  bool relevant(const SelectionStream& stream) const
+  bool relevant(const SelectionStream& ss) const
   {
-    if (stream.type_index == m_subStream)
+    if (ss.type_index == m_subStream)
       return true;
 
-    if (m_isPrefNone)
+    if (m_isSubNone)
       return false;
 
-    // External subtitles with unknown language are always relevant
-    if (IsUnknownLang(stream.language))
+    const bool isExternal = STREAM_SOURCE_MASK(ss.source) == STREAM_SOURCE_DEMUX_SUB ||
+                            STREAM_SOURCE_MASK(ss.source) == STREAM_SOURCE_TEXT;
+    const bool isCC = STREAM_SOURCE_MASK(ss.source) == STREAM_SOURCE_VIDEOMUX;
+
+    // External subtitles with unknown language always allow it
+    if (isExternal && (ss.language.empty() || ss.language == "und"))
     {
-      const bool isExternal = STREAM_SOURCE_MASK(stream.source) == STREAM_SOURCE_DEMUX_SUB ||
-                              STREAM_SOURCE_MASK(stream.source) == STREAM_SOURCE_TEXT;
-      if (isExternal)
-        return true;
+      return true;
     }
 
-    const bool isSameSubLang = g_LangCodeExpander.CompareISO639Codes(stream.language, m_subLang);
-    const bool isCC = STREAM_SOURCE_MASK(stream.source) == STREAM_SOURCE_VIDEOMUX;
+    const bool isSameSubLang = g_LangCodeExpander.CompareISO639Codes(ss.language, m_subLang);
 
     if (m_isPrefHearingImp)
     {
-      if (HasFlags(stream.flags, FLAG_HEARING_IMPAIRED))
-      {
-        if (HasFlags(stream.flags, FLAG_ORIGINAL))
-          return true;
+      const int checkFlags = FLAG_ORIGINAL | FLAG_HEARING_IMPAIRED;
+      if ((ss.flags & checkFlags) == checkFlags)
+        return true;
 
       // to consider CC streams may not have the language code
-        if (isSameSubLang)
-          return true;
-        else if (isCC)
-        {
-          if (IsUnknownLang(stream.language))
-            return true;
-        }
+      if ((ss.flags & StreamFlags::FLAG_HEARING_IMPAIRED) &&
+          (isSameSubLang || (isCC && (ss.language.empty() || ss.language == "und"))))
+      {
+        return true;
       }
       // fallback to regular subtitles
-      if (isSameSubLang)
-      {
-        if (!HasFlags(stream.flags, FLAG_FORCED))
-          return true;
-      }
+      if (isSameSubLang && (ss.flags & FLAG_FORCED) == 0)
+        return true;
 
       return false;
     }
 
     if (m_isPrefOriginal)
     {
-      if (HasFlags(stream.flags, FLAG_ORIGINAL))
+      if ((ss.flags & FLAG_ORIGINAL))
         return true;
     }
     else if (m_isPrefForced)
     {
-      if (isSameSubLang)
-      {
-        if (HasFlags(stream.flags, FLAG_FORCED))
-          return true;
-      }
+      if ((ss.flags & StreamFlags::FLAG_FORCED) && isSameSubLang)
+        return true;
       else
         return false;
     }
 
     // can fall here only when "forced" and "impaired" are disabled,
-    if (!HasFlags(stream.flags, FLAG_FORCED))
+    // it always enable subs if language is unknown for external and CC
+    if ((isSameSubLang || (isCC && (ss.language.empty() || ss.language == "und"))) &&
+        (ss.flags & FLAG_FORCED) == 0 && (ss.flags & FLAG_HEARING_IMPAIRED) == 0)
     {
-      if (!HasFlags(stream.flags, FLAG_HEARING_IMPAIRED))
-      {
-        // to consider CC streams may not have the language code
-        if (isSameSubLang)
-          return true;
-        else if (isCC)
-        {
-          if (IsUnknownLang(stream.language))
-            return true;
-        }
-      }
+      return true;
     }
 
     return false;
@@ -328,72 +306,76 @@ public:
     const bool isRSameSubLang = g_LangCodeExpander.CompareISO639Codes(rh.language, m_subLang);
 
     // "is included" is used to not consider forced and impaired
-    const bool isLincluded = !HasFlags(lh.flags, FLAG_FORCED) && !HasFlags(lh.flags, FLAG_HEARING_IMPAIRED);
-    const bool isRincluded = !HasFlags(rh.flags, FLAG_FORCED) && !HasFlags(rh.flags, FLAG_HEARING_IMPAIRED);
+    const bool isLincluded =
+        (lh.flags & FLAG_FORCED) == 0 && (lh.flags & FLAG_HEARING_IMPAIRED) == 0;
+    const bool isRincluded =
+        (rh.flags & FLAG_FORCED) == 0 && (rh.flags & FLAG_HEARING_IMPAIRED) == 0;
 
     if (m_isPrefHearingImp)
     {
       if (m_isPrefOriginal)
       {
         int checkFlags = FLAG_ORIGINAL | FLAG_HEARING_IMPAIRED | FLAG_DEFAULT;
-        PREDICATE_RETURN(HasFlags(lh.flags, checkFlags), HasFlags(rh.flags, checkFlags));
+        PREDICATE_RETURN((lh.flags & checkFlags) == checkFlags,
+                         (rh.flags & checkFlags) == checkFlags);
 
         checkFlags = FLAG_ORIGINAL | FLAG_HEARING_IMPAIRED;
-        PREDICATE_RETURN(HasFlags(lh.flags, checkFlags), HasFlags(rh.flags, checkFlags));
+        PREDICATE_RETURN((lh.flags & checkFlags) == checkFlags,
+                         (rh.flags & checkFlags) == checkFlags);
       }
 
       int checkFlags = FLAG_HEARING_IMPAIRED | FLAG_DEFAULT;
-      PREDICATE_RETURN(HasFlags(lh.flags, checkFlags) && isLSameSubLang,
-                       HasFlags(rh.flags, checkFlags) && isRSameSubLang);
+      PREDICATE_RETURN((lh.flags & checkFlags) == checkFlags && isLSameSubLang,
+                       (rh.flags & checkFlags) == checkFlags && isRSameSubLang);
 
       checkFlags = FLAG_HEARING_IMPAIRED;
-      PREDICATE_RETURN(HasFlags(lh.flags, checkFlags) && isLSameSubLang,
-                       HasFlags(rh.flags, checkFlags) && isRSameSubLang);
+      PREDICATE_RETURN((lh.flags & checkFlags) == checkFlags && isLSameSubLang,
+                       (rh.flags & checkFlags) == checkFlags && isRSameSubLang);
     }
 
     if (m_isPrefOriginal)
     {
       // try find original (default) in audio language
       const int checkFlags = FLAG_ORIGINAL | FLAG_DEFAULT;
-      PREDICATE_RETURN(isLincluded && HasFlags(lh.flags, checkFlags) && isLSameSubLang,
-                       isRincluded && HasFlags(rh.flags, checkFlags) && isRSameSubLang);
+      PREDICATE_RETURN(isLincluded && (lh.flags & checkFlags) == checkFlags && isLSameSubLang,
+                       isRincluded && (rh.flags & checkFlags) == checkFlags && isRSameSubLang);
 
       // try find original in audio language
-      PREDICATE_RETURN(isLincluded && HasFlags(lh.flags, FLAG_ORIGINAL) && isLSameSubLang,
-                       isRincluded && HasFlags(rh.flags, FLAG_ORIGINAL) && isRSameSubLang);
+      PREDICATE_RETURN(isLincluded && (lh.flags & FLAG_ORIGINAL) && isLSameSubLang,
+                       isRincluded && (rh.flags & FLAG_ORIGINAL) && isRSameSubLang);
 
       // try find original (default) with any language
-      PREDICATE_RETURN(isLincluded && HasFlags(lh.flags, checkFlags),
-                       isRincluded && HasFlags(rh.flags, checkFlags));
+      PREDICATE_RETURN(isLincluded && (lh.flags & checkFlags) == checkFlags,
+                       isRincluded && (rh.flags & checkFlags) == checkFlags);
 
       // try find original with any language
-      PREDICATE_RETURN(isLincluded && HasFlags(lh.flags, FLAG_ORIGINAL),
-                       isRincluded && HasFlags(rh.flags, FLAG_ORIGINAL));
+      PREDICATE_RETURN(isLincluded && (lh.flags & FLAG_ORIGINAL),
+                       isRincluded && (rh.flags & FLAG_ORIGINAL));
     }
     else if (m_isPrefForced)
     {
       const int checkFlags = FLAG_FORCED | FLAG_DEFAULT;
-      PREDICATE_RETURN(HasFlags(lh.flags, checkFlags) && IsUnknownLang(lh.language),
-                       HasFlags(rh.flags, checkFlags) && IsUnknownLang(rh.language));
+      PREDICATE_RETURN((lh.flags & checkFlags) == checkFlags && isLSameSubLang,
+                       (rh.flags & checkFlags) == checkFlags && isRSameSubLang);
 
-      PREDICATE_RETURN(HasFlags(lh.flags, FLAG_FORCED) && isLSameSubLang,
-                       HasFlags(rh.flags, FLAG_FORCED) && isRSameSubLang);
+      PREDICATE_RETURN((lh.flags & FLAG_FORCED) && isLSameSubLang,
+                       (rh.flags & FLAG_FORCED) && isRSameSubLang);
 
-      // don't return false here, allow you to fallback on regular sub
-      // it's just list item pre-selection courtesy, in any case the sub will be not enabled
+      // dont return false here, allow you to fallback on regular sub
+      // its just listitem pre-selection courtesy, in any case the sub will be not enabled
     }
 
     // try find regular (default)
-    PREDICATE_RETURN(isLincluded && HasFlags(lh.flags, FLAG_DEFAULT) && isLSameSubLang,
-                     isRincluded && HasFlags(rh.flags, FLAG_DEFAULT) && isRSameSubLang);
+    PREDICATE_RETURN(isLincluded && lh.flags & FLAG_DEFAULT && isLSameSubLang,
+                     isRincluded && rh.flags & FLAG_DEFAULT && isRSameSubLang);
     // try find regular
     PREDICATE_RETURN(isLincluded && isLSameSubLang, isRincluded && isRSameSubLang);
 
     // if all previous conditions do not match, allow fallback to "unknown" language
     if (!m_isPrefForced)
     {
-      PREDICATE_RETURN(isLincluded && IsUnknownLang(lh.language),
-                       isRincluded && IsUnknownLang(rh.language));
+      PREDICATE_RETURN(isLincluded && (lh.language.empty() || lh.language == "und"),
+                       isRincluded && (rh.language.empty() || rh.language == "und"));
     }
 
     return false;
